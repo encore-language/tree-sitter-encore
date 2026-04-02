@@ -30,9 +30,7 @@ module.exports = grammar({
     source_file: ($) => repeat($._top_level_item),
 
     comment: (_) =>
-      token(
-        choice(seq("//", /.*/), seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/")),
-      ),
+      choice(seq("//", /.*/), seq("/*", /[^*]*\*+([^/*][^*]*\*+)*/, "/")),
 
     identifier: (_) => /[A-Za-z_][A-Za-z0-9_]*/,
 
