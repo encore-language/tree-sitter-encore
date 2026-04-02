@@ -1,0 +1,40 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "encore",
+      "camelcase": "Encore",
+      "title": "Encore",
+      "scope": "source.encore",
+      "file-types": [
+        "enq"
+      ],
+      "injection-regex": "^encore$",
+      "class-name": "TreeSitterEncore"
+    }
+  ],
+  "metadata": {
+    "version": "0.1.0",
+    "license": "MIT",
+    "description": "Encore grammar for tree-sitter",
+    "authors": [
+      {
+        "name": "Maksim Shushkevich",
+        "email": "m.e.shushkevich@yandex.com",
+        "url": "https://github.com/meshushkevich"
+      }
+    ],
+    "links": {
+      "repository": "https://github.com/encore-language/tree-sitter-encore"
+    }
+  },
+  "bindings": {
+    "c": true,
+    "go": true,
+    "node": true,
+    "python": true,
+    "rust": true,
+    "swift": true,
+    "zig": false
+  }
+}

@@ -1,0 +1,27 @@
+struct MyUnit
+
+pub struct MyUnit
+
+struct MyTuple(u16, u32)
+
+pub struct MyTuple(u16, u32)
+
+struct MyTuple {
+    a: u16,
+    b: u32
+}
+
+pub struct MyTuple {
+    a: u16,
+    b: u32
+}
+
+struct MyStruct(u16, u32,)
+
+pub struct MyStruct {
+    a: u16,
+    b: u32,
+}
+
+struct Vector3D[T](T, T, T)
+struct Vector3D[X, Y, Z](X, Y, Z)

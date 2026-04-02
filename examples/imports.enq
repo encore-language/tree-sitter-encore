@@ -1,0 +1,5 @@
+import foo
+import foo::symbol
+import foo::*
+import foo::{bar, foo::bar}
+pub import foo::{bar, foo::bar, a::*}

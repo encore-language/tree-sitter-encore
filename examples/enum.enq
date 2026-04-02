@@ -1,0 +1,9 @@
+enum Option_u32 {
+    Some(u32),
+    None
+}
+
+pub enum Option[T] {
+    Some(T),
+    None
+}

@@ -1,0 +1,9 @@
+struct Vector3D[T] {
+    x: T,
+    y: T,
+    z: T,
+}
+
+pub fn create_vector[T](x: T, y: T, z: T) -> Vector3D[T] {
+    ret Vector3D{x, y, z}
+}
