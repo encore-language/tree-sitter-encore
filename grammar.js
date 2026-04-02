@@ -25,6 +25,7 @@ const PREC = {
 module.exports = grammar({
   name: "encore",
   conflicts: ($) => [[$.path_segment], [$.type, $.path_segment]],
+  extras: ($) => [/\s+/, $.comment],
   rules: {
     source_file: ($) => repeat($._top_level_item),
 
