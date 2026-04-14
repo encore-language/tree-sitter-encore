@@ -6,6 +6,7 @@
 
 /// <reference types="tree-sitter-cli/dsl" />
 // @ts-check
+
 const PREC = {
   LOGICAL_OR: 1,
   LOGICAL_AND: 2,
@@ -18,14 +19,27 @@ const PREC = {
   ADD: 9,
   MUL: 10,
   UNARY: 11,
-  CALL: 12,
+  TRY: 12,
   FIELD: 13,
+  CALL: 14,
 };
 
 module.exports = grammar({
   name: "encore",
-  conflicts: ($) => [[$.path_segment], [$.type, $.path_segment]],
+
+  word: ($) => $.identifier,
+
   extras: ($) => [/\s+/, $.comment],
+
+  conflicts: ($) => [
+    [$.impl_definition],
+    [$.path_segment],
+    [$.type, $.path_segment],
+    [$.expression_statement, $.expression],
+    [$.match_statement, $.match_expression],
+    [$.unsafe_statement, $.unsafe_expression],
+  ],
+
   rules: {
     source_file: ($) => repeat($._top_level_item),
 
@@ -43,24 +57,23 @@ module.exports = grammar({
 
     numeric_suffix: (_) =>
       token.immediate(/_(?:usize|isize|[ui][0-9]+|f[0-9]+)/),
-    float_suffix: (_) => token.immediate(/_(?:f[0-9]+)/),
-    smart_pointer_suffix: (_) => seq("<", choice("H", "S"), ">"),
 
     visibility_modifier: (_) => "pub",
 
-    typed_parameter: ($) =>
-      seq(field("name", $.identifier), ":", field("type", $.type)),
-    type: ($) =>
-      seq($.identifier, optional(seq("[", commaSepTrailing($.type), "]"))),
+    any_pointer_suffix: (_) => "&",
+    smart_pointer_suffix: (_) => seq("<", choice("H", "S"), ">"),
+
+    loop_label: ($) => seq("<", "'", field("name", $.identifier), ">"),
 
     _top_level_item: ($) =>
       choice(
         $.import_statement,
         $.struct_definition,
         $.enum_definition,
-        $.fn_definition,
-        // $.impl_statement,
-        // $.trait_definition,
+        $.trait_definition,
+        $.impl_definition,
+        $.function_definition,
+        $.extern_function_definition,
       ),
 
     import_statement: ($) =>
@@ -86,21 +99,19 @@ module.exports = grammar({
       ),
 
     glob_import: (_) => "*",
-
-    import_group: ($) => seq("{", commaSep1($.import_path), optional(","), "}"),
+    import_group: ($) => seq("{", commaSepTrailing($.import_path), "}"),
 
     struct_definition: ($) =>
       seq(
         optional(field("visibility", $.visibility_modifier)),
         "struct",
-        $.struct_body,
+        field("signature", $.struct_signature),
       ),
-    struct_body: ($) =>
+
+    struct_signature: ($) =>
       seq(
         field("name", $.identifier),
-        optional(
-          seq("[", field("generics", commaSepTrailing($.identifier)), "]"),
-        ),
+        optional(field("generics", $.type_arguments)),
         optional(
           field(
             "fields",
@@ -108,39 +119,119 @@ module.exports = grammar({
           ),
         ),
       ),
+
     tuple_struct_fields: ($) => seq("(", commaSepTrailing($.type), ")"),
     c_like_struct_fields: ($) =>
-      seq("{", commaSepTrailing($.typed_parameter), "}"),
+      seq("{", repeat(seq($.typed_parameter, optional(","))), "}"),
 
     enum_definition: ($) =>
       seq(
         optional(field("visibility", $.visibility_modifier)),
         "enum",
         field("name", $.identifier),
-        optional(
-          seq("[", field("generics", commaSepTrailing($.identifier)), "]"),
-        ),
+        optional(field("generics", $.type_arguments)),
         "{",
-        commaSepTrailing($.struct_body),
+        repeat(seq($.struct_signature, optional(","))),
         "}",
       ),
 
-    fn_definition: ($) =>
+    trait_definition: ($) =>
       seq(
         optional(field("visibility", $.visibility_modifier)),
-        "fn",
+        "trait",
         field("name", $.identifier),
-        optional(
-          seq("[", field("generics", commaSepTrailing($.identifier)), "]"),
-        ),
-        "(",
-        field("parameters", commaSepTrailing($.typed_parameter)),
-        ")",
-        optional(seq("->", field("type", commaSepTrailing($.type)))),
+        optional(field("generics", $.type_arguments)),
+        optional(field("bases", $.trait_bases)),
+        "{",
+        repeat(field("method", $.function_signature)),
+        "}",
+      ),
+
+    trait_bases: ($) => seq("<", commaSep1($.type)),
+
+    impl_definition: ($) =>
+      seq(
+        "impl",
+        optional(field("generics", $.type_arguments)),
+        optional(field("trait_name", $.identifier)),
+        optional(field("trait_args", $.type_arguments)),
+        "for",
+        field("target", $.type),
+        field("body", $.impl_body),
+      ),
+
+    impl_body: ($) => seq("{", repeat(field("method", $.impl_method_definition)), "}"),
+
+    impl_method_definition: ($) =>
+      seq(
+        optional(field("visibility", $.visibility_modifier)),
+        field("signature", $.function_signature),
         field("body", $.block),
       ),
 
+    function_definition: ($) =>
+      seq(
+        optional(field("visibility", $.visibility_modifier)),
+        field("signature", $.function_signature),
+        field("body", $.block),
+      ),
+
+    extern_function_definition: ($) =>
+      seq(
+        optional(field("visibility", $.visibility_modifier)),
+        "extern",
+        field("signature", $.function_signature),
+      ),
+
+    function_signature: ($) =>
+      seq(
+        "fn",
+        field("name", $.identifier),
+        optional(field("generics", $.type_arguments)),
+        "(",
+        field("parameters", commaSepTrailing($.parameter)),
+        ")",
+        optional(seq("->", field("return_type", $.type))),
+      ),
+
+    parameter: ($) => choice($.receiver_parameter, $.typed_parameter),
+
+    receiver_parameter: ($) =>
+      choice(
+        seq(
+          "mut",
+          "self",
+          optional(seq(":", field("type", $.type))),
+        ),
+        seq("self", optional(seq(":", field("type", $.type)))),
+      ),
+
+    typed_parameter: ($) =>
+      seq(field("name", $.identifier), ":", field("type", $.type)),
+
+    type_arguments: ($) => seq("[", commaSepTrailing($.type), "]"),
+
+    type: ($) =>
+      seq(
+        optional(field("mutability", "mut")),
+        field("name", $.identifier),
+        optional(field("generics", $.type_arguments)),
+        optional(field("pointer", choice($.smart_pointer_suffix, $.any_pointer_suffix))),
+      ),
+
+    path: ($) => seq($.path_segment, repeat(seq("::", $.path_segment))),
+
+    path_segment: ($) =>
+      seq(
+        field("name", $.identifier),
+        optional(field("generics", $.type_arguments)),
+        optional(field("pointer", $.smart_pointer_suffix)),
+      ),
+
     block: ($) => seq("{", repeat($.statement), "}"),
+
+    expression_block: ($) =>
+      seq("{", repeat($.statement), field("value", $.expression), "}"),
 
     statement: ($) =>
       choice(
@@ -151,9 +242,11 @@ module.exports = grammar({
         $.loop_statement,
         $.if_statement,
         $.match_statement,
+        $.unsafe_statement,
         $.break_statement,
         $.continue_statement,
         $.assignment_statement,
+        $.expression_statement,
       ),
 
     return_statement: ($) => seq("ret", field("value", $.expression)),
@@ -161,36 +254,46 @@ module.exports = grammar({
     let_statement: ($) =>
       seq(
         "let",
+        optional(field("binding_mutability", "mut")),
         field("name", $.identifier),
         optional(seq(":", field("type", $.type))),
         "=",
         field("value", $.expression),
       ),
 
-    do_while_statement: ($) =>
+    while_statement: ($) =>
       seq(
-        "do",
-        field("body", $.block),
         "while",
+        optional(field("label", $.loop_label)),
         field("condition", $.expression),
+        field("body", $.block),
       ),
 
-    while_statement: ($) =>
-      seq("while", field("condition", $.expression), field("body", $.block)),
+    loop_statement: ($) =>
+      seq("loop", optional(field("label", $.loop_label)), field("body", $.block)),
 
-    loop_statement: ($) => seq("loop", field("body", $.block)),
+    do_while_statement: ($) =>
+      seq("do", field("body", $.block), "while", field("condition", $.expression)),
 
-    break_statement: (_) => "break",
-    continue_statement: (_) => "continue",
+    unsafe_statement: ($) => seq("unsafe", field("body", $.block)),
+
+    break_statement: ($) => seq("break", optional(field("label", $.loop_label))),
+    continue_statement: ($) =>
+      seq("continue", optional(field("label", $.loop_label))),
 
     assignment_statement: ($) =>
       seq(
         field("target", $.assignment_target),
-        "=",
+        field(
+          "operator",
+          choice("=", "+=", "-=", "*=", "/="),
+        ),
         field("value", $.expression),
       ),
 
     assignment_target: ($) => choice($.path, $.field_access_expression),
+
+    expression_statement: ($) => $._statement_expression,
 
     if_statement: ($) =>
       seq(
@@ -198,7 +301,7 @@ module.exports = grammar({
         field("condition", $.expression),
         field("consequence", $.block),
         repeat($.elif_statement),
-        optional($.else_clause),
+        optional($.else_statement_clause),
       ),
 
     elif_statement: ($) =>
@@ -208,23 +311,24 @@ module.exports = grammar({
         field("consequence", $.block),
       ),
 
-    else_clause: ($) => seq("else", field("alternative", $.block)),
+    else_statement_clause: ($) =>
+      seq("else", field("alternative", $.block)),
 
     if_expression: ($) =>
       seq(
         "if",
         field("condition", $.expression),
-        field("consequence", $.block),
+        field("consequence", $.expression_block),
         repeat($.elif_expression_clause),
         "else",
-        field("alternative", $.block),
+        field("alternative", $.expression_block),
       ),
 
     elif_expression_clause: ($) =>
       seq(
         "elif",
         field("condition", $.expression),
-        field("consequence", $.block),
+        field("consequence", $.expression_block),
       ),
 
     match_statement: ($) =>
@@ -262,13 +366,22 @@ module.exports = grammar({
       ),
 
     match_pattern: ($) => choice("_", $.path),
-
     match_binding: ($) => seq("(", field("name", $.identifier), ")"),
 
     expression: ($) =>
       choice(
+        $.if_expression,
+        $.match_expression,
+        $.unsafe_expression,
+        $._statement_expression,
+      ),
+
+    _statement_expression: ($) =>
+      choice(
         $.binary_expression,
         $.unary_expression,
+        $.try_expression,
+        $.method_call_expression,
         $.call_expression,
         $.field_access_expression,
         $.struct_initializer,
@@ -278,41 +391,27 @@ module.exports = grammar({
         $.float_literal,
         $.string_literal,
         $.boolean_literal,
-        $.if_expression,
-        $.match_expression,
-        $.block,
       ),
+
+    unsafe_expression: ($) => seq("unsafe", field("body", $.block)),
 
     parenthesized_expression: ($) => seq("(", $.expression, ")"),
 
     integer_literal: ($) =>
-      seq(
-        field("value", $.integer),
-        optional(field("suffix", $.numeric_suffix)),
-      ),
+      seq(field("value", $.integer), optional(field("suffix", $.numeric_suffix))),
 
     float_literal: ($) =>
-      seq(field("value", $.float), optional(field("suffix", $.float_suffix))),
+      seq(field("value", $.float), optional(field("suffix", $.numeric_suffix))),
 
     struct_initializer: ($) =>
       seq(
         field("type", $.type),
         "{",
-        commaSep($.expression),
-        optional(","),
+        commaSepTrailing($.expression),
         "}",
       ),
 
-    path: ($) => seq($.path_segment, repeat(seq("::", $.path_segment))),
-
-    path_segment: ($) =>
-      seq(
-        field("name", $.identifier),
-        optional(
-          seq("[", field("generics", commaSepTrailing($.identifier)), "]"),
-        ),
-        optional(field("pointer", $.smart_pointer_suffix)),
-      ),
+    argument_list: ($) => seq("(", commaSepTrailing($.expression), ")"),
 
     call_expression: ($) =>
       prec(
@@ -320,13 +419,30 @@ module.exports = grammar({
         seq(field("function", $.path), field("arguments", $.argument_list)),
       ),
 
-    argument_list: ($) => seq("(", commaSep($.expression), ")"),
+    method_call_expression: ($) =>
+      prec.left(
+        PREC.CALL,
+        seq(
+          field("receiver", $.expression),
+          ".",
+          field("method", $.identifier),
+          optional(field("type_arguments", $.type_arguments)),
+          field("arguments", $.argument_list),
+        ),
+      ),
 
     field_access_expression: ($) =>
-      prec(
+      prec.left(
         PREC.FIELD,
-        seq(field("object", $.path), ".", field("field", $.identifier)),
+        seq(
+          field("object", $.expression),
+          ".",
+          field("field", $.identifier),
+        ),
       ),
+
+    try_expression: ($) =>
+      prec.left(PREC.TRY, seq(field("expression", $.expression), "?")),
 
     unary_expression: ($) =>
       prec.right(
